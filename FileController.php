@@ -13,6 +13,7 @@ class FileController
     private static $allIntegrations;
     private static $integrations;
     private static $integrationTasks;
+    private static $reflectionClass;
 
     public function __construct($folderName = 'my_project', $externalPath = '/path/to/external/directory')
     {
@@ -42,10 +43,96 @@ class FileController
             wp_send_json_error('Integration Task not found!', 400);
         }
 
-        error_log(print_r(static::prepareTriggerRoute(), true));
-        error_log(print_r(static::prepareTriggerHook(), true));
-        error_log(print_r(static::prepareTriggerController(), true));
+
+        static::$reflectionClass = new ReflectionClass(static::$integrations);
+        // error_log(print_r($reflectionClass, true));
+        // error_log(print_r(static::$reflectionClass->getMethod('is_plugin_installeds'), true));
+        // error_log(print_r(static::$reflectionClass->getMethods(), true));
+        // error_log(print_r(static::prepareTriggerRoute(), true));
+        // error_log(print_r(static::prepareTriggerHook(), true));
+        // error_log(print_r(static::prepareTriggerController(), true));
+
+
+        // static::getIsPluginInstalledMethod();
+
+        foreach (static::$integrationTasks as $taskData) {
+            static::getTriggerListener($taskData);
+        }
+
         wp_send_json_success([static::$integrations, static::$integrationTasks], 200);
+    }
+
+    private static function getTriggerListener($task)
+    {
+
+        try {
+            $reflectionMethod = new ReflectionMethod($task['function'][0], $task['function'][1]);
+
+            $methodFile = $reflectionMethod->getFileName();
+            $startLine  = $reflectionMethod->getStartLine();
+            $endLine    = $reflectionMethod->getEndLine();
+
+
+            $parameters     = [];
+            $fileContents   = file_get_contents($methodFile);
+            $fileLines      = file($methodFile);
+            $methodContent  = array_slice($fileLines, $startLine - 1, $endLine - $startLine + 1);
+            // $methodContent  = str_replace('public function', 'public static function', implode("", $methodContent));
+
+            foreach ($reflectionMethod->getParameters() as $param) {
+                $parameters[] = '$' . $param->getName();
+            }
+
+            preg_match_all('/use\s+([^;]+);/', $fileContents, $allNamespaces); // Class Namespaces
+            $tokens = token_get_all("<?php\n" . implode("", $methodContent)); // Adding <?php to treat it as PHP code
+            $usedClasses = [];
+
+
+            // Iterate through tokens to detect class instantiations and static calls
+            for ($i = 0; $i < count($tokens); $i++) {
+                if (is_array($tokens[$i])) {
+                    if ($tokens[$i][0] === T_NEW || $tokens[$i][0] === T_DOUBLE_COLON) {
+                        // If it's a 'new' or static call (::), the next non-whitespace token is likely a class
+                        $j = $i + 1;
+                        while (isset($tokens[$j]) && is_array($tokens[$j]) && $tokens[$j][0] === T_WHITESPACE) {
+                            $j++;
+                        }
+                        if (isset($tokens[$j]) && is_array($tokens[$j]) && $tokens[$j][0] === T_STRING) {
+                            $usedClasses[] = $tokens[$j - 2][1];
+                        }
+                    }
+                }
+            }
+
+            $label = preg_replace('/[^a-zA-Z0-9_ -]/s', '', ucwords($task['label']));
+            $methodContent  = str_replace('public function ' . $task['function'][1], 'public static function ' . static::convertToSnakeCase($task['label'] . '_' . $task['function'][1]), implode("", $methodContent));
+
+            error_log(print_r([$task['label'] => $methodContent], true));
+        } catch (\ReflectionException $exception) {
+            wp_send_json_error($exception->getMessage(), $exception->getCode());
+        }
+
+        // error_log(print_r([file($methodFile), $task['label'] => $class->getMethods()], true));
+    }
+
+    private static function getIsPluginInstalledMethod()
+    {
+        try {
+            $reflectionMethod = static::$reflectionClass->getMethod('is_plugin_installed');
+
+            $methodFile = $reflectionMethod->getFileName();
+            $startLine  = $reflectionMethod->getStartLine();
+            $endLine    = $reflectionMethod->getEndLine();
+
+
+            $fileLines      = file($methodFile);
+            $methodContent  = array_slice($fileLines, $startLine - 1, $endLine - $startLine + 1);
+            $methodContent  = str_replace('public function', 'public static function', implode("", $methodContent));
+
+            return "\n" . $methodContent . "\n";
+        } catch (\ReflectionException $exception) {
+            wp_send_json_error($exception->getMessage(), $exception->getCode());
+        }
     }
 
     private static function prepareTriggerRoute()
@@ -76,7 +163,7 @@ class FileController
                         Hooks::add('%hook%', [%controllerClass%, '%hook_execution_method%'], %priority%, %accepted_args%);
                         PHP;
 
-        $fileContent = "<?php\n\n";
+        $fileContent  = "<?php\n\n";
         $fileContent .= "if (!defined('ABSPATH')) {\n";
         $fileContent .= "    exit;\n";
         $fileContent .= "}\n\n";
