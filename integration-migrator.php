@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-class TestPlugin
+class IntegrationMigrator
 {
     private $integrations;
 
@@ -37,7 +37,16 @@ class TestPlugin
 
     public function create_admin_page()
     {
-        add_menu_page('Test Plugin', 'Test Plugin', 'manage_options', 'integration-migrator', [$this, 'admin_page_html']);
+        add_menu_page(
+            'Integration Migrator',
+            'Integration Migrator',
+            'manage_options',
+            'integration-migrator',
+            [$this, 'admin_page_html'],
+            'dashicons-migrate',
+            6
+        );
+
         $this->integrations = apply_filters('sure_trigger_integrations', []);
     }
 
@@ -85,4 +94,4 @@ class TestPlugin
     }
 }
 
-new TestPlugin();
+new IntegrationMigrator();
