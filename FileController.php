@@ -42,6 +42,8 @@ class FileController
             wp_send_json_error('Integration Task not found!', 400);
         }
 
+        error_log(print_r(static::prepareTriggerRoute(), true));
+        error_log(print_r(static::prepareTriggerHook(), true));
         error_log(print_r(static::prepareTriggerController(), true));
         wp_send_json_success([static::$integrations, static::$integrationTasks], 200);
     }
@@ -156,6 +158,16 @@ class FileController
                                 return true;
                             }
 
+                            private static function setTestData($optionKey, $formData, $id)
+                            {
+                                if (get_option($optionKey) !== false) {
+                                    update_option($optionKey, [
+                                        'formData'   => $formData,
+                                        'primaryKey' => [(object) ['key' => 'id', 'value' => $id]] // id must set manually
+                                    ]);
+                                }
+                            }
+
                         PHP;
 
         $fileContent .= "\n";
@@ -166,14 +178,9 @@ class FileController
                             // formData need to be prepare manually
                             $formData = static::%trigger_listener%(%exec_params%);
 
-                            if (get_option('btcbi_%trigger_slug%_test') !== false) {
-                                update_option('btcbi_%trigger_slug%_test', [
-                                    'formData'   => $formData,
-                                    'primaryKey' => [(object) ['key' => 'id', 'value' => 'id']] // id must set manually
-                                ]);
-                            }
-
+                            static::setTestData('btcbi_%trigger_slug%_test', $formData, 'id'); // id must set manually
                             $flows = Flow::exists('%trigger_name%', '%hook%');
+
                             if (!$flows) {
                                 return;
                             }
